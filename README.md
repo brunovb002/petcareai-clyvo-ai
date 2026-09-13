@@ -5,6 +5,13 @@ responsável por analisar dados do pet e gerar uma **priorização de cuidados**
 (baixa / média / alta), apoiando o tutor a agir preventivamente antes de um
 problema de saúde se agravar.
 
+## Integrantes do Grupo
+
+* **Bruno Vinicius Barbosa** – RM 566366
+* **Guilherme de Andrade Martini** – RM 566087
+* **Nathan Gonçalves Pereira Mendes** – RM 564666
+* **Raphael Gomes Mancera** – RM 562279
+
 ## Problema de negócio
 
 Tutores frequentemente perdem o timing de vacinas, consultas de rotina e

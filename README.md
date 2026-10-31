@@ -55,55 +55,64 @@ apareceram exatamente iguais no dataset de treino.
 | Symptom_1..Symptom_5 | Relato do tutor / consulta | Sinais clínicos atuais |
 | risk_priority (target) | **Derivado** a partir das colunas acima (ver `engineer_target()` em `train_model.py`) | O que o modelo aprende a prever |
 
-## Arquitetura de integração (planejada para a Sprint 4)
+## Arquitetura de integração (implementada na Sprint 4)
 
-![Arquitetura CLYVO AI](docs/clyvo_ai_arquitetura.png)
+![Arquitetura CLYVO AI](clyvo_ai_arquitetura.png)
 
 ```
-App Mobile (tutor)
-      |  consulta dados do pet
+App / Swagger (tutor)
+      |  POST /api/pets/{id}/avaliacao-risco  (histórico médico + sintomas em português)
       v
-API (.NET) ------> Banco de Dados (pets, vacinas, consultas)
+API PetCareAI (.NET) ------> Azure SQL (espécie, raça, idade e peso do pet)
       |
-      |  chama endpoint de IA com os dados do pet
+      |  traduz os dados para o formato do modelo e chama POST /predict
       v
-Servico CLYVO AI (Python / Flask, expoe predict_priority)
-      |
-      v
-Modelo treinado (Random Forest) -> prioridade + confianca
+Serviço CLYVO AI (este repositório, Python / Flask)
       |
       v
-API devolve recomendacao ------> App exibe ao tutor
+Modelo treinado (Random Forest) -> prioridade + probabilidades
+      |
+      v
+API devolve prioridade (Alta/Média/Baixa) + recomendação ao tutor
+e registra a avaliação no histórico de atividades (MongoDB)
 ```
+
+A API .NET está no repositório [PetCareAI-Sprint4](https://github.com/brunovb002/PetCareAI-Sprint4).
 
 ## Estrutura do projeto
 
 ```
-clyvo_ai/
+petcareai-clyvo-ai/
 ├── data/
 │   └── veterinary_clinical_dataset.csv   # dataset real (Kaggle)
-├── docs/
-│   └── clyvo_ai_arquitetura.png          # diagrama arquitetural
 ├── model/
 │   ├── clyvo_ai_model.joblib             # modelo treinado
 │   └── clyvo_ai_encoder.joblib           # encoder das colunas categóricas
 ├── train_model.py                        # treina e salva o modelo
 ├── predict.py                            # carrega o modelo e faz predições
+├── app.py                                # API REST (Flask) - Sprint 4
+├── test_app.py                           # testes da API - Sprint 4
+├── requirements.txt
+├── clyvo_ai_arquitetura.png              # diagrama arquitetural
 └── README.md
 ```
 
 ## Como usar
 
 ```bash
-pip install pandas scikit-learn joblib
+pip install -r requirements.txt
 
-# 1. Baixe o dataset real do Kaggle em data/veterinary_clinical_dataset.csv
-
-# 2. Treine o modelo:
+# 1. (Opcional) Treine o modelo de novo, o dataset já está em data/:
 python train_model.py
 
-# 3. Rode uma predição de exemplo:
+# 2. Rode uma predição de exemplo no terminal:
 python predict.py
+
+# 3. Suba a API REST (http://localhost:5000):
+python app.py
+
+# 4. Rode os testes da API:
+python -m unittest -v
 ```
 
 ## Resultados parciais (Sprint 3)
@@ -129,15 +138,73 @@ Testes qualitativos confirmam o comportamento esperado do modelo:
 - Gato jovem, saudável, sem histórico, sintomas leves → **low priority
   (99.7% de confiança)**
 
-## Próximos passos (Sprint 4)
+## Sprint 4: API REST e integração
 
-- Investigar o recall mais baixo da classe "high" (ex: ajustar pesos de
+### Endpoints (`app.py`)
+
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | `/health` | Retorna `{"status": "Healthy"}` |
+| POST | `/predict` | Recebe os dados do pet e devolve a prioridade |
+
+O modelo é carregado do disco **uma única vez** e reaproveitado em todas as requisições.
+
+**Exemplo:**
+
+```bash
+curl -X POST http://localhost:5000/predict -H "Content-Type: application/json" -d '{
+  "AnimalName": "Dog", "Breed": "Labrador Retriever", "Age": 11, "Weight_kg": 28.5,
+  "MedicalHistory": "Chronic illness",
+  "Symptom_1": "Difficulty in breathing", "Symptom_2": "Weakness", "Symptom_3": "Fever"
+}'
+```
+
+```json
+{ "priority": "high", "confidence": { "high": 0.88, "low": 0.0, "medium": 0.12 } }
+```
+
+- Campos obrigatórios: `AnimalName` (`Dog` ou `cat`), `Breed`, `Age`, `Weight_kg`, `MedicalHistory` e pelo menos um sintoma (`Symptom_1` a `Symptom_5`). Faltando algum, a resposta é **400** com a mensagem do erro.
+- Raças que o modelo não conhece não quebram a predição (o encoder usa o valor "desconhecido").
+
+### Testes (`test_app.py`)
+
+7 testes com `unittest`, todos passando: health check, pet grave → `high`, pet saudável → `low`, probabilidades das 3 classes somando 1, raça desconhecida, campos obrigatórios ausentes (400) e requisição sem sintomas (400).
+
+### Integração com a API .NET
+
+A API PetCareAI expõe `POST /api/pets/{id}/avaliacao-risco`. O tutor envia o histórico médico e os sintomas **em português**; a API busca os dados do pet no banco, traduz tudo para o formato deste modelo (ex.: `Cachorro` → `Dog`, `SRD` → `Mixed Breed`, `febre` → `Fever`), chama `/predict` e devolve ao tutor a prioridade com uma recomendação.
+
+Resultados obtidos chamando este serviço pela API .NET:
+
+| Pet | Sintomas relatados | Prioridade |
+|---|---|---|
+| Cachorro Labrador, 11 anos, doença crônica | dificuldade para respirar, fraqueza, febre, letargia, dor | **high** (88%) |
+| Gato Persa, 9 anos, doença renal prévia | perda de apetite, perda de peso, fraqueza | **medium** (65%) |
+| Gato Siamês, 2 anos, sem condições prévias | espirros | **low** (100%) |
+| Cachorro SRD, 6 anos, não vacinado | vômito, diarreia | low (70%) |
+
+**Limitação observada:** o modelo usa sempre 5 colunas de sintoma. Quando o tutor informa menos, as vazias contam como sintoma leve, então relatos curtos (como o último caso) tendem a sair com prioridade menor do que um veterinário daria.
+
+### Deploy na Azure
+
+O serviço roda em um Web App Python no mesmo App Service Plan da API. Um único comando cria o Web App e publica o código (o `requirements.txt` é instalado na publicação):
+
+```bash
+az webapp up --name clyvo-ai-566366 --resource-group rg-petcareai-devops --plan asp-petcareai-devops --runtime PYTHON:3.12
+```
+
+A URL do serviço (`https://clyvo-ai-566366.azurewebsites.net`) é configurada na API .NET pela variável `ClyvoAi__Url`.
+
+## Próximos passos
+
+- ✅ Expor `predict_priority()` como endpoint REST (Flask)
+- ✅ Integrar o endpoint à API .NET do PetCareAI
+- ✅ Testar com dados do banco do PetCareAI
+- Investigar o recall mais baixo da classe "high" (ex.: ajustar pesos de
   classe no Random Forest, ou revisar a lista de palavras-chave críticas)
-- Expor `predict_priority()` como endpoint REST (Flask)
-- Integrar o endpoint à API .NET do PetCareAI+
+- Considerar a quantidade de sintomas informados no treino
 - Exibir a recomendação na tela do app mobile
-- Testar em cenário real de uso com dados do banco do PetCareAI+
 
 ## Tecnologias
 
-Python, pandas, scikit-learn (RandomForestClassifier), joblib
+Python, pandas, scikit-learn (RandomForestClassifier), joblib, Flask, gunicorn

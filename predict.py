@@ -2,12 +2,13 @@
 CLYVO AI — Predição de prioridade de cuidado para um pet
 
 Carrega o modelo treinado e devolve o nível de prioridade (low/medium/high)
-para os dados de um pet específico. Este é o núcleo do que futuramente vira
-um endpoint (Sprint 4) consumido pela API/app do CLYVO VET.
+para os dados de um pet específico. Exposto como endpoint REST em app.py.
 """
+from functools import lru_cache
+from pathlib import Path
+
 import joblib
 import pandas as pd
-from pathlib import Path
 from train_model import (
     add_symptom_features,
     CATEGORICAL_COLS,
@@ -19,13 +20,18 @@ MODEL_PATH = BASE_DIR / "model" / "clyvo_ai_model.joblib"
 ENCODER_PATH = BASE_DIR / "model" / "clyvo_ai_encoder.joblib"
 
 
+@lru_cache(maxsize=1)
+def carregar_modelo():
+    """Lê o modelo e o encoder do disco uma única vez (e não a cada requisição)."""
+    return joblib.load(MODEL_PATH), joblib.load(ENCODER_PATH)
+
+
 def predict_priority(pet: dict) -> dict:
     """
     pet: dicionário com as chaves AnimalName (especie), Breed, Age,
          Weight_kg, MedicalHistory, Symptom_1..Symptom_5
     """
-    model = joblib.load(MODEL_PATH)
-    encoder = joblib.load(ENCODER_PATH)
+    model, encoder = carregar_modelo()
 
     df = pd.DataFrame([pet])
     df = add_symptom_features(df)

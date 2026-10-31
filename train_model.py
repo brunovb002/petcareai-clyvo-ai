@@ -145,7 +145,11 @@ def main():
         X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-    model = RandomForestClassifier(n_estimators=200, max_depth=8, random_state=42)
+    # class_weight="balanced" compensa a classe "high" ser a menor do dataset.
+    # Sprint 4: recall de "high" subiu de 0.71 para 0.99 (menos casos urgentes sem alerta).
+    model = RandomForestClassifier(
+        n_estimators=200, max_depth=8, random_state=42, class_weight="balanced"
+    )
     model.fit(X_train, y_train)
 
     y_pred = model.predict(X_test)

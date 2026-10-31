@@ -138,6 +138,24 @@ Testes qualitativos confirmam o comportamento esperado do modelo:
 - Gato jovem, saudável, sem histórico, sintomas leves → **low priority
   (99.7% de confiança)**
 
+## Sprint 4: modelo retreinado
+
+O próximo passo listado na Sprint 3 era melhorar o recall da classe "high". O modelo foi retreinado com
+`class_weight="balanced"` no Random Forest, que dá mais peso à classe menor durante o treino
+(mesmo dataset, mesmo split e mesmos hiperparâmetros):
+
+| Métrica (conjunto de teste, 2.000 registros) | Sprint 3 | Sprint 4 |
+|---|---|---|
+| Recall "high" (casos urgentes detectados) | 0.71 | **0.99** |
+| Precision "high" | 0.95 | 0.93 |
+| F1 "high" | 0.81 | **0.96** |
+| Acurácia geral | 0.90 | **0.95** |
+
+Em triagem de saúde, deixar de sinalizar um caso urgente (falso negativo) é o erro mais caro, então
+trocar 2 pontos de precisão por 28 pontos de recall vale a pena. Um teste com árvores mais profundas
+chegou a 0.99 de acurácia, mas foi descartado: como o rótulo é derivado por regras, isso indicaria
+o modelo decorando a regra, não generalizando.
+
 ## Sprint 4: API REST e integração
 
 ### Endpoints (`app.py`)
@@ -172,18 +190,25 @@ curl -X POST http://localhost:5000/predict -H "Content-Type: application/json" -
 
 ### Integração com a API .NET
 
-A API PetCareAI expõe `POST /api/pets/{id}/avaliacao-risco`. O tutor envia o histórico médico e os sintomas **em português**; a API busca os dados do pet no banco, traduz tudo para o formato deste modelo (ex.: `Cachorro` → `Dog`, `SRD` → `Mixed Breed`, `febre` → `Fever`), chama `/predict` e devolve ao tutor a prioridade com uma recomendação.
+A API PetCareAI expõe `POST /api/pets/{id}/avaliacao-risco`. O tutor envia o histórico médico e os sintomas **em português**; a API busca os dados do pet no banco, traduz tudo para o formato deste modelo (ex.: `Cachorro` → `Dog`, `SRD` → `Mixed Breed`, `febre` → `Fever`) e chama `/predict`. Com a resposta, a API:
 
-Resultados obtidos chamando este serviço pela API .NET:
+- devolve a prioridade com uma **recomendação personalizada** e os **fatores** que pesaram (sinais graves e moderados, pet sênior, histórico de risco), usando a mesma escala de gravidade deste modelo;
+- inclui um **alerta de segurança** quando há um sinal grave e a prioridade não é alta;
+- **guarda cada avaliação** no banco, formando o histórico de saúde do pet (`GET /api/pets/{id}/avaliacoes`).
 
-| Pet | Sintomas relatados | Prioridade |
-|---|---|---|
-| Cachorro Labrador, 11 anos, doença crônica | dificuldade para respirar, fraqueza, febre, letargia, dor | **high** (88%) |
-| Gato Persa, 9 anos, doença renal prévia | perda de apetite, perda de peso, fraqueza | **medium** (65%) |
-| Gato Siamês, 2 anos, sem condições prévias | espirros | **low** (100%) |
-| Cachorro SRD, 6 anos, não vacinado | vômito, diarreia | low (70%) |
+Resultados obtidos chamando este serviço pela API .NET (modelo retreinado):
 
-**Limitação observada:** o modelo usa sempre 5 colunas de sintoma. Quando o tutor informa menos, as vazias contam como sintoma leve, então relatos curtos (como o último caso) tendem a sair com prioridade menor do que um veterinário daria.
+| Pet | Sintomas relatados | Prioridade | Destaque da resposta |
+|---|---|---|---|
+| Cachorro Labrador, 11 anos, doença crônica | dificuldade para respirar, fraqueza, febre, letargia, dor | **high** (93%) | sinal grave, pet sênior, doença crônica |
+| Gato Persa, 9 anos, doença renal prévia | perda de apetite, perda de peso, fraqueza | **medium** (57%) | histórico de doença renal |
+| Cachorro SRD, 6 anos, não vacinado | vômito, diarreia | low (83%) | orienta a vacinação |
+| Cachorro Poodle, 4 anos, vacinado | convulsão | low (77%) | **alerta de segurança** |
+| Gato Siamês, 2 anos, sem condições prévias | espirros | **low** (100%) | sem fatores de risco |
+
+**Limitações observadas:**
+- O modelo usa sempre 5 colunas de sintoma. Quando o tutor informa menos, as vazias contam como sintoma leve, então relatos curtos (como o do Poodle) tendem a sair com prioridade menor do que um veterinário daria. O alerta de segurança da API cobre esse caso.
+- O rótulo `risk_priority` é derivado por regras, não rotulado por veterinários; as métricas medem o quanto o modelo reproduz esse critério. A CLYVO AI é uma triagem de apoio e não substitui o veterinário.
 
 ### Deploy na Azure
 
@@ -200,9 +225,10 @@ A URL do serviço (`https://clyvo-ai-566366.azurewebsites.net`) é configurada n
 - ✅ Expor `predict_priority()` como endpoint REST (Flask)
 - ✅ Integrar o endpoint à API .NET do PetCareAI
 - ✅ Testar com dados do banco do PetCareAI
-- Investigar o recall mais baixo da classe "high" (ex.: ajustar pesos de
-  classe no Random Forest, ou revisar a lista de palavras-chave críticas)
+- ✅ Melhorar o recall da classe "high" (`class_weight="balanced"`: 0.71 → 0.99)
+- ✅ Recomendação personalizada e histórico de avaliações por pet (na API .NET)
 - Considerar a quantidade de sintomas informados no treino
+- Validar os rótulos de prioridade com veterinários da CLYVO VET
 - Exibir a recomendação na tela do app mobile
 
 ## Tecnologias

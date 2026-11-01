@@ -215,10 +215,10 @@ Resultados obtidos chamando este serviço pela API .NET (modelo retreinado):
 O serviço roda em um Web App Python no mesmo App Service Plan da API. Um único comando cria o Web App e publica o código (o `requirements.txt` é instalado na publicação):
 
 ```bash
-az webapp up --name clyvo-ai-566366 --resource-group rg-petcareai-devops --plan asp-petcareai-devops --runtime PYTHON:3.12
+az webapp up --name clyvo-ai-s4 --resource-group rg-petcareai-devops --plan asp-petcareai-devops --runtime PYTHON:3.12
 ```
 
-A URL do serviço (`https://clyvo-ai-566366.azurewebsites.net`) é configurada na API .NET pela variável `ClyvoAi__Url`.
+A URL do serviço (`https://clyvo-ai-s4.azurewebsites.net`) é configurada na API .NET pela variável `ClyvoAi__Url`.
 
 ## Próximos passos
 
